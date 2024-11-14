@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Classification Result</title>
+</head>
+<body>
+    <h1>Result</h1>
+    <p><strong>Prediction:</strong> {{ label }}</p>
+    <p><img src="{{ image.image.url }}" alt="Uploaded Image" width="300"></p>
+    <a href="{% url 'classify_image' %}">Upload Another Image</a>
+</body>
+</html>
