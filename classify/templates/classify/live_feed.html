@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Live Object Detection</title>
+    <style>
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Live Object Detection</h1>
+    <video id="webcam" autoplay playsinline width="640" height="480"></video>
+    <canvas id="overlay" width="640" height="480"></canvas>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('overlay');
+        const ctx = canvas.getContext('2d');
+
+        // Access webcam
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+            })
+            .catch(err => console.error("Webcam access error:", err));
+
+        // Periodically send frames to the backend for detection
+        function sendFrame() {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+
+            const imageData = tempCanvas.toDataURL('image/jpeg');
+
+            fetch('/detect/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({ image: imageData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                drawDetections(data.objects);  // Draw boxes and labels
+            })
+            .catch(err => console.error("Detection error:", err));
+        }
+
+        // Draw bounding boxes and labels on the overlay
+        function drawDetections(detections) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);  // Clear previous drawings
+            detections.forEach(det => {
+                const [x1, y1, x2, y2] = det.bbox;  // Bounding box coordinates
+                ctx.strokeStyle = 'green';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);  // Draw bounding box
+                ctx.font = '16px Arial';
+                ctx.fillStyle = 'green';
+                ctx.fillText(`${det.label} (${(det.confidence * 100).toFixed(1)}%)`, x1, y1 - 10);  // Add label and confidence
+            });
+        }
+
+        // Continuously send frames at an interval
+        setInterval(sendFrame, 500);  // Every 500ms
+    </script>
+</body>
+</html>

@@ -1,40 +1,49 @@
-import os
-from django.conf import settings
-from django.shortcuts import render
-from .forms import ImageForm
-from .models import Image
-import tensorflow as tf
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image as img
+import base64
+import cv2
 import numpy as np
+from django.http import JsonResponse
+from ultralytics import YOLO
+from django.views.decorators.csrf import csrf_exempt
+import json
+from django.shortcuts import render
 
-# Replace 'path_to_your_model.h5' with the actual path to your trained model
-MODEL_PATH = os.path.join(settings.BASE_DIR, 'classify', 'models', 'cifar10_model.h5')
+def live_feed(request):
+    """Render the live webcam feed page."""
+    return render(request, 'classify/live_feed.html')  # Ensure template exists
 
-def classify_image(request):
-    model = load_model(MODEL_PATH)  # Load your pre-trained CIFAR-10 model
+# Load YOLO model (YOLOv8n for speed)
+model = YOLO('yolov8n.pt')
 
+@csrf_exempt  # Disable CSRF for testing purposes
+def detect_objects(request):
     if request.method == 'POST':
-        form = ImageForm(request.POST, request.FILES)
-        if form.is_valid():
-            img_instance = form.save()  # Save the uploaded image
-            img_path = img_instance.image.path
+        try:
+            data = json.loads(request.body)
+            image_data = data.get('image').split(',')[1]  # Remove base64 prefix
+            img_bytes = base64.b64decode(image_data)
 
-            # Preprocess the image for your CIFAR-10 model
-            uploaded_image = img.load_img(img_path, target_size=(32, 32))  # Resize to 32x32
-            img_tensor = img.img_to_array(uploaded_image) / 255.0  # Normalize pixel values
-            img_tensor = np.expand_dims(img_tensor, axis=0)  # Add batch dimension
+            # Convert to NumPy array and decode to image
+            np_img = np.frombuffer(img_bytes, dtype=np.uint8)
+            frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
 
-            # Make a prediction
-            prediction = model.predict(img_tensor)
-            predicted_class = prediction.argmax()  # Get the index of the highest probability
+            # Run YOLO inference
+            results = model.predict(source=frame, conf=0.5, show=False)
 
-            # Map the predicted index to CIFAR-10 class names
-            class_names = ['Airplane', 'Automobile', 'Bird', 'Cat', 'Deer',
-                           'Dog', 'Frog', 'Horse', 'Ship', 'Truck']
-            label = class_names[predicted_class]
+            detections = []
+            for box in results[0].boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                label = model.names[int(box.cls[0])]
+                confidence = float(box.conf[0])
+                detections.append({
+                    'bbox': [x1, y1, x2, y2],
+                    'label': label,
+                    'confidence': confidence
+                })
 
-            return render(request, 'classify/result.html', {'label': label, 'image': img_instance})
-    else:
-        form = ImageForm()
-    return render(request, 'classify/upload.html', {'form': form})
+            return JsonResponse({'objects': detections})
+
+        except Exception as e:
+            print(f"Error during detection: {e}")
+            return JsonResponse({'error': 'Failed to process image'}, status=500)
+
+    return JsonResponse({'error': 'Invalid request'}, status=400)
