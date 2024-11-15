@@ -1,0 +1,6 @@
+# Ignore Python virtual environment
+venv/
+
+# Ignore large model files 
+*.h5
+*.so
